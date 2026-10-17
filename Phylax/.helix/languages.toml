@@ -1,0 +1,13 @@
+[language-server.basedpyright]
+command = "uv"
+args = ["run", "--project", ".", "basedpyright-langserver", "--stdio"]
+
+[language-server.ruff]
+command = "uv"
+args = ["run", "--project", ".", "ruff", "server"]
+
+[[language]]
+name = "python"
+language-servers = ["basedpyright", "ruff"]
+auto-format = true
+formatter = { command = "uv", args = ["run", "--project", ".", "ruff", "format", "-"] }

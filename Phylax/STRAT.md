@@ -1,0 +1,3 @@
+# Sma + Supertrend
+
+

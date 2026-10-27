@@ -73,6 +73,20 @@ def test_limit_gap_improvement_and_stop_gap_execution_costs() -> None:
     assert trade.exit_reason == "stop_loss"
 
 
+def test_mark_to_market_includes_realized_unrealized_and_exit_costs() -> None:
+    broker = Buroka(lot_size=5, fee_rate=0.001)
+    broker.submit_order(buy_order(entry_price=100, sl=90, tp=120, lots=2))
+    broker.process_candle(candle(0, high=101, low=99, close=100))
+
+    # 10 units: +100 unrealized P&L, less 1 entry fee and 1.1 estimated exit fee.
+    assert broker.mark_to_market_equity(1000, 110) == pytest.approx(1097.9)
+
+    broker.close_position_next_candle(broker.positions[0].position_id)
+    broker.process_candle(candle(1, open_=110, high=111, low=109, close=110))
+    assert broker.trades[0].net_pnl == pytest.approx(97.9)
+    assert broker.mark_to_market_equity(1000, 110) == pytest.approx(1097.9)
+
+
 def test_stop_wins_when_stop_and_target_both_touch_same_ohlc_bar() -> None:
     broker = Buroka()
     broker.submit_order(buy_order())
@@ -118,9 +132,11 @@ def test_order_ttl_counts_while_position_limit_is_full() -> None:
 def test_cancel_duplicate_and_invalid_order_behaviors() -> None:
     broker = Buroka()
     order_id = broker.submit_order(buy_order())
+    assert broker.is_order_pending(order_id)
     with pytest.raises(InvalidOrderError, match="duplicate"):
         broker.submit_order(buy_order())
     broker.cancel_order(order_id)
+    assert not broker.is_order_pending(order_id)
     assert broker.order_history[0].status == OrderStatus.CANCELLED
     with pytest.raises(InvalidOrderError, match="sl < entry_price < tp"):
         broker.submit_order(buy_order(sl=101))
@@ -138,6 +154,18 @@ def test_signal_exit_is_filled_at_next_candle_open() -> None:
 
     assert broker.trades[0].exit_reason == "signal"
     assert broker.trades[0].exit_price == 103
+
+
+def test_protective_stop_takes_priority_over_a_pending_signal_exit() -> None:
+    broker = Buroka()
+    broker.submit_order(buy_order(sl=90, tp=110))
+    broker.process_candle(candle(0, high=102, low=99))
+    position_id = broker.positions[0].position_id
+    broker.close_position_next_candle(position_id)
+    broker.process_candle(candle(1, open_=100, high=101, low=89, close=95))
+
+    assert broker.trades[0].exit_reason == "stop_loss"
+    assert broker.trades[0].exit_price == 90
 
 
 def test_end_of_data_leave_or_close_is_explicit() -> None:

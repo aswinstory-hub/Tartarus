@@ -74,7 +74,9 @@ Return a stable, documented structure rather than an arbitrary mix of dicts and 
 ## 5. Kijun — metrics/reporting specification
 Kijun receives Buroka results through the strategy file, calculates metrics, prints a summary and stores a report.
 
-The plan names `backtestMetricsLog/` or `Notenbuch/`. Choose one canonical folder at implementation time; default recommendation is `backtestMetricsLog/`.
+Kijun stores results under `backtests/<strategy_id>/`, with `latest.json`,
+append-only `history.jsonl`, and optional trade/TXT exports. Generated output is
+ignored by Git.
 
 Possible metrics: total/annualized return, maximum drawdown, win rate, average win/loss, expectancy, trade count, exposure, turnover, cost impact and benchmark comparison. Sharpe/Sortino require explicit assumptions and enough observations.
 

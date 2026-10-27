@@ -26,6 +26,7 @@ Data/raw/
 Research/data/
 Research/outputs/
 backtestMetricsLog/
+backtests/
 Notenbuch/
 reports/
 experiments/runs/

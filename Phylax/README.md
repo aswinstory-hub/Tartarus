@@ -10,8 +10,9 @@ local. It does not place live orders.
 - `Data/` — read-only Dhan historical candle access and a local SQLite candle
   reader. See `Data/README.md` for credentials and data formats.
 - `Engines/` — Buroka simulates limit orders, Kijun reports backtest metrics,
-  realized equity/drawdown curves, and an interactive browser dashboard; Toga
-  creates interactive OHLC charts with SMA, EMA, and Bollinger overlays.
+  marked or realized equity/drawdown curves, and an interactive browser
+  dashboard in Tartarus's portable Chromium; Toga creates interactive OHLC
+  charts with SMA, EMA, and Bollinger overlays.
 - `Strategies/` — independently runnable strategy backtests. The SMA crossover
   example exercises Buroka and Kijun.
 - `Research/` — exploratory scripts and notebooks; Toga is intended to be
@@ -35,6 +36,8 @@ when a sourced fixture is available.
 
 ## Quick links
 
+- [docs/](docs/README.md) — reference pages for each Phylax module.
+- [tutorial/](tutorial/README.md) — beginner guides with file locations and usage steps.
 - [HOWTOUSE.md](HOWTOUSE.md) — end-to-end examples for all three engines.
 - [Strategies/framework.md](Strategies/framework.md) — recommended structure
   for new strategy backtests.

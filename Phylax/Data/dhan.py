@@ -59,8 +59,9 @@ class CandleData:
     ``Date``, ``Time``, title-case OHLC, and optional ``Volume`` columns.
     ``Date`` and ``Time`` are local IST display columns; the original timezone-aware
     timestamp remains the index. Duplicate timestamps are retained and listed
-    in ``duplicate_timestamps``;
-    missing intraday bars are listed in ``gaps``.
+    in ``duplicate_timestamps``. Negative-volume rows are excluded and listed in
+    ``invalid_volume_timestamps``; their values are never rewritten. Missing
+    intraday bars are listed in ``gaps``.
     Gap detection only compares bars within a weekday and the same local date,
     and does not infer bars across overnight/session boundaries.
     """
@@ -71,6 +72,20 @@ class CandleData:
     interval: str
     duplicate_timestamps: tuple[pd.Timestamp, ...] = ()
     gaps: tuple[tuple[pd.Timestamp, pd.Timestamp], ...] = ()
+    invalid_volume_timestamps: tuple[pd.Timestamp, ...] = ()
+
+    def to_ohlc_frame(self) -> pd.DataFrame:
+        """Return a copy with engine-friendly lowercase OHLC column names."""
+        frame = self.frame.rename(
+            columns={
+                "Open": "open",
+                "High": "high",
+                "Low": "low",
+                "Close": "close",
+                "Volume": "volume",
+            }
+        )
+        return frame.drop(columns=["Date", "Time"], errors="ignore").copy()
 
 
 class DataClient(Protocol):
@@ -137,6 +152,14 @@ def _normalize_payload(
         frame = frame.loc[frame.index >= start]
     if end is not None:
         frame = frame.loc[frame.index < end]
+    invalid_volume_timestamps: tuple[pd.Timestamp, ...] = ()
+    if "volume" in frame:
+        invalid_volume = frame["volume"] < 0
+        invalid_volume_timestamps = tuple(
+            pd.Timestamp(timestamp) for timestamp in frame.index[invalid_volume]
+        )
+        if invalid_volume_timestamps:
+            frame = frame.loc[~invalid_volume].copy()
     duplicate_mask = frame.index.duplicated(keep=False)
     duplicates = tuple(pd.Timestamp(ts) for ts in frame.index[duplicate_mask].unique())
     for col in ("open", "high", "low", "close"):
@@ -146,8 +169,6 @@ def _normalize_payload(
         raise DataError("Candle response has a high below another OHLC price")
     if (frame["low"] > frame[["open", "high", "close"]].min(axis=1)).any():
         raise DataError("Candle response has a low above another OHLC price")
-    if "volume" in frame and (frame["volume"] < 0).any():
-        raise DataError("Candle response contains negative volume")
     gaps: list[tuple[pd.Timestamp, pd.Timestamp]] = []
     if interval in INTRADAY_INTERVALS:
         step = timedelta(minutes=int(interval))
@@ -159,7 +180,15 @@ def _normalize_payload(
     frame.insert(0, "Date", frame.index.strftime("%Y-%m-%d"))
     frame.insert(1, "Time", frame.index.strftime("%H:%M:%S"))
     frame.rename(columns={key: key.title() for key in value_fields}, inplace=True)
-    return CandleData(frame, source, symbol, interval, duplicates, tuple(gaps))
+    return CandleData(
+        frame,
+        source,
+        symbol,
+        interval,
+        duplicates,
+        tuple(gaps),
+        invalid_volume_timestamps,
+    )
 
 
 class DhanClient:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Literal
 
@@ -94,6 +94,7 @@ class BrokerSnapshot:
     pending_orders: tuple[Order, ...]
     positions: tuple[Position, ...]
     trades: tuple[Trade, ...]
+    equity_marks: tuple[tuple[pd.Timestamp, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,7 +107,6 @@ class _Candle:
     volume: float | None = None
 
 
-@dataclass
 class Buroka:
     """Simulate limit entries, protective exits, and explicit signal exits.
 
@@ -121,38 +121,67 @@ class Buroka:
     beyond ``fee_rate``, partial fills, and tick-size rounding are not modeled.
     """
 
-    lot_size: int = 1
-    multiplier: float = 1.0
-    fee_rate: float = 0.0
-    spread_bps: float = 0.0
-    slippage_bps: float = 0.0
-    max_positions: int = 1
-    max_pending_orders: int = 20
-    _pending: list[Order] = field(default_factory=list, init=False, repr=False)
-    _positions: list[Position] = field(default_factory=list, init=False, repr=False)
-    _orders: list[Order] = field(default_factory=list, init=False, repr=False)
-    _trades: list[Trade] = field(default_factory=list, init=False, repr=False)
-    _close_requests: set[str] = field(default_factory=set, init=False, repr=False)
-    _last_candle: _Candle | None = field(default=None, init=False, repr=False)
-    _sequence: int = field(default=0, init=False, repr=False)
-    _finished: bool = field(default=False, init=False, repr=False)
+    def __init__(
+        self,
+        lot_size: int = 1,
+        multiplier: float = 1.0,
+        fee_rate: float = 0.0,
+        spread_bps: float = 0.0,
+        slippage_bps: float = 0.0,
+        max_positions: int = 1,
+        max_pending_orders: int = 20,
+    ) -> None:
+        # Settings are explicit so a strategy can configure the simulated broker.
+        self.lot_size = lot_size
+        self.multiplier = multiplier
+        self.fee_rate = fee_rate
+        self.spread_bps = spread_bps
+        self.slippage_bps = slippage_bps
+        self.max_positions = max_positions
+        self.max_pending_orders = max_pending_orders
 
-    def __post_init__(self) -> None:
+        # These lists hold the broker state for one backtest run.
+        self._pending = []
+        self._positions = []
+        self._orders = []
+        self._trades = []
+        self._close_requests = set()
+        self._last_candle = None
+        self._finished = False
+        self._equity_initial_capital = None
+        self._equity_start_time = None
+        self._equity_baseline = None
+        self._equity_marks = []
+
+        self._validate_settings()
+
+    def _validate_settings(self) -> None:
         if (
             isinstance(self.lot_size, bool)
             or not isinstance(self.lot_size, int)
             or self.lot_size < 1
         ):
             raise ValueError("lot_size must be a positive integer")
-        for name in ("multiplier", "fee_rate", "spread_bps", "slippage_bps"):
-            value = getattr(self, name)
-            if not math.isfinite(value) or value < 0 or (name == "multiplier" and value == 0):
-                qualifier = "positive" if name == "multiplier" else "non-negative"
-                raise ValueError(f"{name} must be finite and {qualifier}")
-        for name in ("max_positions", "max_pending_orders"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise ValueError(f"{name} must be a positive integer")
+        if not math.isfinite(self.multiplier) or self.multiplier <= 0:
+            raise ValueError("multiplier must be finite and positive")
+        if not math.isfinite(self.fee_rate) or self.fee_rate < 0:
+            raise ValueError("fee_rate must be finite and non-negative")
+        if not math.isfinite(self.spread_bps) or self.spread_bps < 0:
+            raise ValueError("spread_bps must be finite and non-negative")
+        if not math.isfinite(self.slippage_bps) or self.slippage_bps < 0:
+            raise ValueError("slippage_bps must be finite and non-negative")
+        if (
+            isinstance(self.max_positions, bool)
+            or not isinstance(self.max_positions, int)
+            or self.max_positions < 1
+        ):
+            raise ValueError("max_positions must be a positive integer")
+        if (
+            isinstance(self.max_pending_orders, bool)
+            or not isinstance(self.max_pending_orders, int)
+            or self.max_pending_orders < 1
+        ):
+            raise ValueError("max_pending_orders must be a positive integer")
 
     @property
     def pending_orders(self) -> tuple[Order, ...]:
@@ -170,8 +199,96 @@ class Buroka:
     def order_history(self) -> tuple[Order, ...]:
         return tuple(self._orders)
 
-    def on_candle(self, candle: Mapping[str, object] | pd.Series) -> None:
-        """Process a completed OHLC candle in the order lifecycle.
+    @staticmethod
+    def validate_candle_data(candles: pd.DataFrame) -> None:
+        """Validate a full candle frame before any broker state is changed."""
+        required = {"open", "high", "low", "close"}
+        if candles.empty:
+            raise ValueError("candle data is empty")
+        missing = required - set(candles.columns)
+        if missing:
+            raise ValueError(f"candles missing columns: {', '.join(sorted(missing))}")
+        if not isinstance(candles.index, pd.DatetimeIndex) or candles.index.tz is None:
+            raise ValueError("candles must have a timezone-aware DatetimeIndex")
+        if candles.index.isna().any():
+            raise ValueError("candle timestamps must not be missing")
+        if not candles.index.is_monotonic_increasing or candles.index.has_duplicates:
+            raise ValueError("candle timestamps must be strictly increasing and unique")
+        prices = candles[list(required)]
+        if not all(pd.api.types.is_numeric_dtype(prices[column]) for column in required):
+            raise ValueError("OHLC prices must be numeric")
+        if prices.isna().any().any() or not prices.map(math.isfinite).all().all():
+            raise ValueError("OHLC prices must be finite and complete")
+        if (prices <= 0).any().any():
+            raise ValueError("OHLC prices must be positive")
+        if (prices["high"] < prices[["open", "low", "close"]].max(axis=1)).any():
+            raise ValueError("candle high is below another OHLC price")
+        if (prices["low"] > prices[["open", "high", "close"]].min(axis=1)).any():
+            raise ValueError("candle low is above another OHLC price")
+
+    @staticmethod
+    def validate_order_settings(
+        *, lots: int, stop_pct: float, target_pct: float, entry_ttl_bars: int
+    ) -> None:
+        """Check strategy order sizing and bracket settings at the broker boundary."""
+        if isinstance(lots, bool) or not isinstance(lots, int) or lots < 1:
+            raise InvalidOrderError("lots must be a positive integer")
+        if (
+            not math.isfinite(stop_pct)
+            or not math.isfinite(target_pct)
+            or not 0 < stop_pct < 1
+            or target_pct <= 0
+        ):
+            raise InvalidOrderError("stop_pct must be between 0 and 1 and target_pct positive")
+        if (
+            isinstance(entry_ttl_bars, bool)
+            or not isinstance(entry_ttl_bars, int)
+            or entry_ttl_bars < 1
+        ):
+            raise InvalidOrderError("entry_ttl_bars must be a positive integer")
+
+    @staticmethod
+    def validate_end_policy(policy: str) -> None:
+        """Reject an unsupported end-of-data policy before processing candles."""
+        if policy not in ("leave", "cancel_pending", "close_at_last_close"):
+            raise ValueError("policy must be leave, cancel_pending, or close_at_last_close")
+
+    def start_equity_tracking(
+        self, initial_capital: float, start_time: object | None = None
+    ) -> None:
+        """Record liquidation-value equity after each processed candle close.
+
+        When ``start_time`` is set, retain the last prior candle as a baseline
+        and record every candle from the requested start onward.
+        """
+        if self._last_candle is not None or self._equity_initial_capital is not None:
+            raise BurokaError("equity tracking must start before candle processing")
+        if (
+            isinstance(initial_capital, bool)
+            or not isinstance(initial_capital, (int, float))
+            or not math.isfinite(initial_capital)
+            or initial_capital <= 0
+        ):
+            raise ValueError("initial_capital must be finite and positive")
+        self._equity_initial_capital = float(initial_capital)
+        if start_time is not None:
+            start = pd.Timestamp(start_time)
+            if start.tzinfo is None:
+                start = start.tz_localize("Asia/Kolkata")
+            self._equity_start_time = start
+
+    @property
+    def equity_marks(self) -> tuple[tuple[pd.Timestamp, float], ...]:
+        """Return recorded (timestamp, equity) marks for Kijun."""
+        return tuple(self._equity_marks)
+
+    @property
+    def is_equity_tracking(self) -> bool:
+        """Return whether this broker is collecting periodic equity values."""
+        return self._equity_initial_capital is not None
+
+    def process_candle(self, candle: Mapping[str, object] | pd.Series) -> None:
+        """Process one completed candle before the strategy checks its signal.
 
         Stops and targets for existing positions are processed first, followed
         by requested signal exits, then pending limit orders. Entry-candle
@@ -181,14 +298,14 @@ class Buroka:
         parsed = _parse_candle(candle)
         if self._last_candle is not None and parsed.timestamp <= self._last_candle.timestamp:
             raise BurokaError("Candle timestamps must be strictly increasing")
-        self._sequence += 1
         self._process_positions(parsed)
         self._process_pending(parsed)
         self._last_candle = parsed
+        self._record_equity(parsed)
 
-    def process_candle(self, candle: Mapping[str, object] | pd.Series) -> None:
-        """Plain-language name for processing the candle before its signal."""
-        self.on_candle(candle)
+    def on_candle(self, candle: Mapping[str, object] | pd.Series) -> None:
+        """Compatibility name for :meth:`process_candle`."""
+        self.process_candle(candle)
 
     def place_limit_order(
         self,
@@ -261,6 +378,10 @@ class Buroka:
         order.status = OrderStatus.CANCELLED
         self._pending.remove(order)
 
+    def is_order_pending(self, order_id: str) -> bool:
+        """Return whether an order is still waiting to fill."""
+        return any(order.order_id == order_id for order in self._pending)
+
     def finish(self, policy: EndPolicy = "leave") -> BrokerSnapshot:
         """Finalize a run, explicitly choosing how residual state is handled.
 
@@ -270,8 +391,7 @@ class Buroka:
         the last candle close. Neither policy invents a final candle or fill.
         """
         self._ensure_active()
-        if policy not in ("leave", "cancel_pending", "close_at_last_close"):
-            raise ValueError("policy must be leave, cancel_pending, or close_at_last_close")
+        self.validate_end_policy(policy)
         if policy in ("cancel_pending", "close_at_last_close"):
             for order in self._pending:
                 order.status = OrderStatus.CANCELLED
@@ -296,18 +416,75 @@ class Buroka:
             tuple(replace(item) for item in self._pending),
             tuple(replace(item) for item in self._positions),
             tuple(self._trades),
+            tuple(self._equity_marks),
         )
 
+    def _record_equity(self, candle: _Candle) -> None:
+        if self._equity_initial_capital is None:
+            return
+        mark = (
+            candle.timestamp,
+            self.mark_to_market_equity(self._equity_initial_capital, candle.close),
+        )
+        if self._equity_start_time is None:
+            self._equity_start_time = candle.timestamp
+        if candle.timestamp < self._equity_start_time:
+            self._equity_baseline = mark
+            return
+        if self._equity_baseline is not None:
+            self._equity_marks.append(self._equity_baseline)
+            self._equity_baseline = None
+        self._equity_marks.append(mark)
+
+    def mark_to_market_equity(self, initial_capital: float, mark_price: float) -> float:
+        """Return liquidation-value equity at ``mark_price`` for this instrument.
+
+        Closed trades contribute realized net P&L. Open positions contribute
+        unrealized gross P&L less their entry costs and estimated exit costs at
+        the mark. This estimates account equity after closing at the mark; it
+        does not model cash, margin, financing, or reserved capital.
+
+        The mark price applies to every open position in this broker instance,
+        so one instance should represent one instrument.
+        """
+        for name, value in (
+            ("initial_capital", initial_capital),
+            ("mark_price", mark_price),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(f"{name} must be finite and positive")
+
+        equity = initial_capital + sum(trade.net_pnl for trade in self._trades)
+        for position in self._positions:
+            direction = 1 if position.side == "buy" else -1
+            unrealized_gross = (
+                (mark_price - position.entry_price)
+                * direction
+                * position.quantity
+                * self.multiplier
+            )
+            estimated_exit_cost = self._cost(mark_price, position.quantity)
+            equity += unrealized_gross - position.entry_cost - estimated_exit_cost
+        return equity
+
     def _process_positions(self, candle: _Candle) -> None:
+        # Protective stop/target exits take priority over signal close requests.
         for position in tuple(self._positions):
-            if position.position_id in self._close_requests:
-                self._close_position(position, candle.timestamp, candle.open, "signal")
-                self._close_requests.discard(position.position_id)
-                continue
             exit_result = _exit_on_candle(position, candle)
             if exit_result is not None:
                 exit_price, reason = exit_result
                 self._close_position(position, candle.timestamp, exit_price, reason)
+
+        # Close any positions that remain after checking their protective exits.
+        for position in tuple(self._positions):
+            if position.position_id in self._close_requests:
+                self._close_position(position, candle.timestamp, candle.open, "signal")
+                self._close_requests.discard(position.position_id)
 
     def _process_pending(self, candle: _Candle) -> None:
         for order in tuple(self._pending):
@@ -448,8 +625,11 @@ def _parse_order(order: OrderRequest | Mapping[str, object]) -> OrderRequest:
             raise InvalidOrderError(f"missing order field: {exc.args[0]}") from None
     if request.side not in ("buy", "sell"):
         raise InvalidOrderError("side must be 'buy' or 'sell'")
-    for name in ("entry_price", "sl", "tp"):
-        value = getattr(request, name)
+    for name, value in (
+        ("entry_price", request.entry_price),
+        ("sl", request.sl),
+        ("tp", request.tp),
+    ):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise InvalidOrderError(f"{name} must be numeric")
         if not math.isfinite(value) or value <= 0:

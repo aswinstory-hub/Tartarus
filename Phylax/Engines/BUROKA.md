@@ -96,3 +96,9 @@ Completed `Trade` records include order and position IDs, side, entry and exit
 timestamps/prices, lots, quantity, gross P&L, costs, net P&L, and exit reason.
 Pending orders and open positions are returned separately in `BrokerSnapshot`.
 Trade records are realized results; open positions are not marked to market.
+`mark_to_market_equity(initial_capital, mark_price)` calculates liquidation-
+value equity for one instrument. It adds closed-trade net P&L and open-position
+unrealized P&L, subtracting entry costs already incurred and estimated exit
+costs at the mark. The mark price applies to every open position in that broker
+instance. It does not model cash balances, margin, financing, reserved capital,
+or portfolio valuation across multiple instruments.

@@ -55,6 +55,11 @@ does not infer missing bars across overnight or session boundaries. No values
 are interpolated. If volume is absent in a source response or SQLite schema,
 the `Volume` column is omitted.
 
+Rows with negative volume are excluded rather than changed, and their timestamps
+are exposed in `invalid_volume_timestamps`. The SMA strategy prints a warning
+and includes these timestamps in the saved report metadata so a run that omits
+a source anomaly remains auditable.
+
 ## Local SQLite file
 
 `SQLiteCandleStore(path)` expects a read-only database with this schema:

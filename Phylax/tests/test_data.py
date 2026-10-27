@@ -70,6 +70,9 @@ def test_normalize_payload_uses_ist_and_reports_gaps_and_duplicates() -> None:
     ]
     assert data.frame.iloc[0]["Date"] == data.frame.index[0].strftime("%Y-%m-%d")
     assert data.frame.iloc[0]["Time"] == data.frame.index[0].strftime("%H:%M:%S")
+    engine_frame = data.to_ohlc_frame()
+    assert list(engine_frame.columns) == ["open", "high", "low", "close", "volume"]
+    assert engine_frame.index.equals(data.frame.index)
 
 
 @pytest.mark.parametrize(
@@ -93,6 +96,18 @@ def test_normalize_payload_allows_missing_volume() -> None:
 
     assert "Volume" not in result.frame.columns
     assert list(result.frame.columns) == ["Date", "Time", "Open", "High", "Low", "Close"]
+
+
+def test_normalize_payload_excludes_and_reports_negative_volume_rows() -> None:
+    payload = _payload()
+    payload["volume"] = [1000, -11_392_840]
+
+    result = _normalize_payload(payload, source="dhan", symbol="TATASTEEL", interval="5")
+
+    expected_timestamp = pd.Timestamp(1722501300, unit="s", tz="UTC").tz_convert(IST)
+    assert len(result.frame) == 1
+    assert result.invalid_volume_timestamps == (expected_timestamp,)
+    assert (result.frame["Volume"] >= 0).all()
 
 
 def test_sqlite_store_reads_only_matching_symbol_interval_and_range(tmp_path) -> None:

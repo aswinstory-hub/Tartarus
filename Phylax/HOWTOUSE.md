@@ -170,54 +170,68 @@ report = kijun.review(
     },
 )
 kijun.print_summary(report)
-kijun.save(report, stem="tata-steel-sma-example")
-kijun.show_dashboard(report)
+latest_path = kijun.save(report, strategy_id="sma_crossover")
+# Launch only when you want to inspect the saved result.
+kijun.show_dashboard(report, report_path=latest_path)
 ```
 
-By default, Kijun writes JSON, metrics CSV, readable text, realized equity,
-drawdown, and periodic-equity CSVs under the ignored `backtestMetricsLog/`
-directory. Net return and CAGR require positive initial capital; CAGR also
+Every successful SMA run replaces `backtests/sma_crossover/latest.json` and
+appends one compact record to `history.jsonl`. In `Strategies/sma_crossover.py`,
+set `SAVE_TRADES`, `SAVE_TEXT`, or `SAVE_REPORT` to enable optional exports and
+leave `OPEN_DASHBOARD = True` (the current default) to open the saved result in
+Tartarus's portable Chromium. Net return and CAGR require
+positive initial capital; CAGR also
 requires a positive test duration and ending capital. Sharpe and Sortino are
-calculated only when the caller supplies periodic marked equity, the
-observations per year, and the annual risk-free rate. The SMA example does not
-claim mark-to-market equity, so those two ratios remain undefined for that
-strategy. Turnover is entry and exit price times quantity; it does not infer a
-contract multiplier.
+calculated from the SMA example's daily candle-close liquidation-value equity,
+using 252 observations per year and a zero risk-free rate by default. Set
+`RISK_FREE_RATE` to an annual decimal such as `0.04`. Open-position P&L
+and estimated exit costs are included in the mark. The dashboard labels these
+curves as marked-to-market and keeps realized-trade curves separately.
+Turnover is entry and exit price times quantity; it does not infer a contract
+multiplier.
 
 Kijun also reports trade quality, streak, side, cost breakdown, Sharpe/Sortino
 when periodic equity is provided, drawdown, recovery, exposure, turnover, and
 time-underwater metrics. Its browser dashboard shows interactive equity,
 drawdown, and trade P&L charts, summary cards, and downloadable trade and
-metrics tables. The realized curves use closed trade exits; open positions are
-not marked to market.
+metrics tables. Marked curves include open positions at candle closes when
+supplied; realized curves use only closed trade exits.
 See `Engines/KIJUN.md` for metric definitions and limitations.
 
 ## Run the example strategy
 
 The SMA crossover example connects Dhan or a local SQLite database to Buroka
-and Kijun:
+and Kijun. Edit the labeled settings near the top of
+`Strategies/sma_crossover.py` to choose the date range, SMA periods, sizing,
+costs, data source, optional exports, and dashboard setting. Then run:
 
 ```powershell
-uv run python -m Strategies.sma_crossover --start 2025-01-01 --end 2025-04-01 --end-policy leave
+uv run python -m Strategies.sma_crossover
 ```
 
-The strategy starts Kijun's dashboard automatically after each run. Its default
-initial capital is 1,000,000 for return metrics; set `--initial-capital` to
-another value when needed. This value does not control Buroka position sizing.
+Each run saves a compact latest report and history entry under
+`backtests/sma_crossover/`. With `OPEN_DASHBOARD = True` (the current default),
+Kijun starts Streamlit and opens the report in Tartarus's portable Chromium at
+`browser/chrome-win64/chrome.exe`. The executable path is resolved relative to
+the Tartarus repository. If Chromium is missing, the launcher reports the
+expected path and does not fall back to the system browser. Set
+`OPEN_DASHBOARD = False` to skip opening it. Use
+`SAVE_TRADES`, `SAVE_TEXT`, or `SAVE_REPORT` for optional exports.
+`INITIAL_CAPITAL` configures Kijun return metrics; it does not control Buroka
+position sizing. The other constants configure lots, bracket, order expiry,
+end-of-data behavior, lot size, multiplier, fees, spread, and slippage.
 
 For a local database:
 
-```powershell
-uv run python -m Strategies.sma_crossover --start 2025-01-01 --end 2025-04-01 --db Data/test_data/tata_steel.db
+```python
+DATABASE_PATH = Path("Data/test_data/tata_steel.db")
 ```
 
-`--initial-capital` affects Kijun return metrics and does not control Buroka
-position sizing. `--end-policy` selects whether Buroka leaves open state
-visible, cancels pending orders, or closes positions at the final candle close.
-The SMA CLI fetches three times the slow-period length in calendar days before
+The TATA STEEL fixture database is not included yet; use a sourced database
+matching the schema in `Data/README.md`.
+
+The strategy fetches three times the slow-period length in calendar days before
 the scored start date to warm its indicators. It does not submit orders during
 that warm-up and warns if fewer than 30 warm-up candles are available with the
-default slow period. The strategy's full options are available with `--help`.
-Its default costs are zero, so set the fee, spread, and slippage options to
-your sourced assumptions before interpreting net results. A backtest is a deterministic simulation under
+default slow period. Costs default to zero. A backtest is a deterministic simulation under
 the stated data and execution assumptions, not a prediction or live order.

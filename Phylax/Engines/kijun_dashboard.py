@@ -6,7 +6,6 @@ import atexit
 import html
 import json
 import os
-import socket
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +15,9 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 _METRIC_LABELS = {
-    "total_net_pnl": "Net P&L",
+    "total_net_pnl": "Realized net P&L",
+    "net_pnl": "Net P&L",
+    "marked_net_pnl": "Marked net P&L",
     "net_return_pct": "Net return",
     "cagr_pct": "CAGR",
     "maximum_drawdown_amount": "Max drawdown",
@@ -40,7 +41,7 @@ _METRIC_LABELS = {
     "maximum_time_underwater_days": "Longest underwater",
 }
 _PRIMARY_METRICS = (
-    "total_net_pnl",
+    "net_pnl",
     "net_return_pct",
     "cagr_pct",
     "maximum_drawdown_pct",
@@ -80,7 +81,7 @@ def _number(value: Any, suffix: str = "") -> str:
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, (float, int)):
-        return f"{value:,.2f}{suffix}"
+        return f"{value:,.3f}{suffix}"
     return f"{value}{suffix}"
 
 
@@ -102,13 +103,6 @@ def _metric_value(key: str, metrics: dict[str, Any]) -> str:
         elif value is not None and key == "time_in_market_pct":
             suffix = "%"
     return _number(value, suffix)
-
-
-def _available_port() -> int:
-    """Choose an available local TCP port for the dashboard server."""
-    with socket.socket() as connection:
-        connection.bind(("127.0.0.1", 0))
-        return int(connection.getsockname()[1])
 
 
 def _chart_layout(figure: go.Figure, title: str, height: int = 390) -> go.Figure:
@@ -144,7 +138,14 @@ def equity_figure(report: dict[str, Any]) -> go.Figure | None:
     if frame.empty:
         return None
     capital = report.get("metrics", {}).get("initial_capital")
-    label = "Account equity" if capital is not None else "Cumulative realized P&L"
+    marked = bool(curves.get("periodic_equity_curve"))
+    label = (
+        "Marked-to-market account equity"
+        if marked
+        else "Account equity"
+        if capital is not None
+        else "Cumulative realized P&L"
+    )
     figure = go.Figure(
         go.Scatter(
             x=frame["time"],
@@ -154,11 +155,11 @@ def equity_figure(report: dict[str, Any]) -> go.Figure | None:
             line={"color": _COLORS["blue"], "width": 2.6},
             fill="tozeroy" if capital is None else None,
             fillcolor="rgba(99,167,255,0.10)" if capital is None else None,
-            hovertemplate="%{x|%Y-%m-%d %H:%M}<br>%{y:,.2f}<extra></extra>",
+            hovertemplate="%{x|%Y-%m-%d %H:%M}<br>%{y:,.3f}<extra></extra>",
         )
     )
-    figure.update_yaxes(title_text=label, tickformat=",.2f")
-    figure.update_xaxes(title_text="Exit date", rangeslider_visible=True)
+    figure.update_yaxes(title_text=label, tickformat=",.3f")
+    figure.update_xaxes(title_text="Candle close", rangeslider_visible=True)
     return _chart_layout(figure, "Equity Curve", 440)
 
 
@@ -182,7 +183,7 @@ def drawdown_figure(report: dict[str, Any]) -> go.Figure | None:
             line={"color": _COLORS["red"], "width": 2.2},
             fill="tozeroy",
             fillcolor="rgba(255,107,122,0.14)",
-            hovertemplate="%{x|%Y-%m-%d %H:%M}<br>Drawdown %{y:,.2f}<extra></extra>",
+            hovertemplate="%{x|%Y-%m-%d %H:%M}<br>Drawdown %{y:,.3f}<extra></extra>",
         ),
         secondary_y=False,
     )
@@ -194,13 +195,13 @@ def drawdown_figure(report: dict[str, Any]) -> go.Figure | None:
                 mode="lines",
                 name="Drawdown %",
                 line={"color": _COLORS["amber"], "width": 1.8, "dash": "dot"},
-                hovertemplate="%{x|%Y-%m-%d %H:%M}<br>Drawdown %{y:.2f}%<extra></extra>",
+                hovertemplate="%{x|%Y-%m-%d %H:%M}<br>Drawdown %{y:.3f}%<extra></extra>",
             ),
             secondary_y=True,
         )
-    figure.update_yaxes(title_text="Amount", tickformat=",.2f", secondary_y=False)
+    figure.update_yaxes(title_text="Amount", tickformat=",.3f", secondary_y=False)
     figure.update_yaxes(title_text="Percent", ticksuffix="%", secondary_y=True)
-    figure.update_xaxes(title_text="Exit date", rangeslider_visible=True)
+    figure.update_xaxes(title_text="Candle close", rangeslider_visible=True)
     return _chart_layout(figure, "Drawdown", 440)
 
 
@@ -223,11 +224,11 @@ def trades_figure(report: dict[str, Any]) -> go.Figure | None:
             customdata=frame[
                 [column for column in ("exit_time", "side", "exit_reason") if column in frame]
             ],
-            hovertemplate="Trade %{x}<br>Net P&L %{y:,.2f}<extra></extra>",
+            hovertemplate="Trade %{x}<br>Net P&L %{y:,.3f}<extra></extra>",
         )
     )
     figure.update_xaxes(title_text="Closed trade")
-    figure.update_yaxes(title_text="Net P&L", tickformat=",.2f", zeroline=True)
+    figure.update_yaxes(title_text="Net P&L", tickformat=",.3f", zeroline=True)
     return _chart_layout(figure, "Trade P&L", 350)
 
 
@@ -269,7 +270,6 @@ def _trade_table(report: dict[str, Any]) -> pd.DataFrame:
 
 
 def render_app(report: dict[str, Any]) -> None:
-    st.set_page_config(page_title="Kijun · Backtest Review", page_icon="◈", layout="wide")
     st.markdown(
         """
         <style>
@@ -310,6 +310,17 @@ def render_app(report: dict[str, Any]) -> None:
         f'Generated {html.escape(str(report.get("generated_at", "")))}</div>',
         unsafe_allow_html=True,
     )
+    if report.get("history_only"):
+        if report.get("trade_export") and report.get("curves", {}).get("trades"):
+            st.info(
+                "This historical run stores summary metrics and trade details. "
+                "Candle-level equity and drawdown curves are only kept for the latest run."
+            )
+        else:
+            st.info(
+                "This historical run stores summary metrics only. Detailed trades and "
+                "candle-level curves were not exported."
+            )
 
     st.sidebar.markdown("### Run details")
     st.sidebar.write("**Instrument**", symbol or "n/a")
@@ -317,7 +328,14 @@ def render_app(report: dict[str, Any]) -> None:
     st.sidebar.write("**Data source**", metadata.get("data_source", "n/a"))
     st.sidebar.write("**Date range**", f"{start or 'n/a'} → {end or 'n/a'}")
     st.sidebar.markdown("---")
-    st.sidebar.caption("Realized closed-trade curves exclude open-position mark-to-market P&L.")
+    if report.get("curves", {}).get("periodic_equity_curve"):
+        st.sidebar.caption(
+            "Main equity and drawdown use candle-close marks, including open-position P&L."
+        )
+    else:
+        st.sidebar.caption(
+            "Equity and drawdown use realized closed trades; open-position P&L is excluded."
+        )
 
     _metric_cards(metrics, _PRIMARY_METRICS[:4])
     _metric_cards(metrics, _SECONDARY_METRICS)
@@ -374,6 +392,82 @@ def render_app(report: dict[str, Any]) -> None:
             st.info("No assumptions were included in this report.")
         st.subheader("Run metadata")
         st.json(metadata)
+
+
+def load_report(report_path: str | Path) -> dict[str, Any]:
+    """Read and check a saved Kijun report before showing the dashboard."""
+    report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    if not isinstance(report, dict) or not isinstance(report.get("metrics"), dict):
+        raise ValueError("The selected file is not a valid Kijun report.")
+    return report
+
+
+def load_history_records(history_path: str | Path) -> list[dict[str, Any]]:
+    """Read compact, independent history records from a strategy JSONL file."""
+    path = Path(history_path)
+    if not path.is_file():
+        return []
+    records = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid history record on line {line_number}.") from exc
+        if not isinstance(record, dict) or not isinstance(record.get("metrics"), dict):
+            raise ValueError(f"Invalid history record on line {line_number}.")
+        records.append(record)
+    return records
+
+
+def load_selected_run(strategy_folder: str | Path, backtest_id: str) -> dict[str, Any]:
+    """Load the latest full report or an older compact history entry on demand."""
+    folder = Path(strategy_folder).resolve()
+    latest_path = folder / "latest.json"
+    if latest_path.is_file():
+        latest = load_report(latest_path)
+        if latest.get("backtest_id") == backtest_id:
+            return latest
+
+    record = next(
+        (
+            item
+            for item in load_history_records(folder / "history.jsonl")
+            if item.get("backtest_id") == backtest_id
+        ),
+        None,
+    )
+    if record is None:
+        raise ValueError(f"Backtest {backtest_id!r} was not found in this strategy history.")
+
+    trades = []
+    trade_reference = record.get("trade_export")
+    if isinstance(trade_reference, str) and trade_reference:
+        trade_path = (folder / trade_reference).resolve()
+        if trade_path.is_relative_to(folder) and trade_path.is_file():
+            try:
+                frame = pd.read_csv(trade_path)
+                trades = frame.astype(object).where(pd.notna(frame), None).to_dict("records")
+            except (OSError, UnicodeDecodeError, pd.errors.ParserError):
+                trades = []
+
+    return {
+        "backtest_id": record.get("backtest_id"),
+        "strategy_id": record.get("strategy_id"),
+        "generated_at": record.get("generated_at", ""),
+        "metadata": record.get("metadata", {}),
+        "metrics": record["metrics"],
+        "assumptions": record.get("assumptions", {}),
+        "trade_export": trade_reference,
+        "history_only": True,
+        "curves": {
+            "equity_curve": [],
+            "periodic_equity_curve": [],
+            "drawdown_curve": [],
+            "trades": trades,
+        },
+    }
 
 
 def render_static_html(report: dict[str, Any], view: str = "overview", width: int = 120) -> str:
@@ -458,17 +552,38 @@ td:last-child {{ text-align:right }}
 
 
 def main() -> None:
+    st.set_page_config(page_title="Kijun · Backtest Review", page_icon="◈", layout="wide")
     report_path = os.environ.get("PHYLAX_KIJUN_REPORT")
     if not report_path:
         st.error("Kijun report path is not configured for this dashboard session.")
         st.stop()
     try:
-        report = json.loads(Path(report_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        report = load_report(report_path)
+        path = Path(report_path)
+        if path.name == "latest.json":
+            history = load_history_records(path.parent / "history.jsonl")
+            latest_id = report.get("backtest_id")
+            run_ids = []
+            labels = {}
+            for item in reversed(history):
+                run_id = item.get("backtest_id")
+                if isinstance(run_id, str) and run_id not in run_ids:
+                    run_ids.append(run_id)
+                    labels[run_id] = f"{item.get('generated_at', '')} · {run_id}"
+            if isinstance(latest_id, str) and latest_id not in run_ids:
+                run_ids.insert(0, latest_id)
+            if isinstance(latest_id, str):
+                labels[latest_id] = f"Latest · {latest_id}"
+            if run_ids:
+                selected_id = st.sidebar.selectbox(
+                    "Backtest run",
+                    run_ids,
+                    index=run_ids.index(latest_id) if latest_id in run_ids else 0,
+                    format_func=lambda run_id: labels.get(run_id, run_id),
+                )
+                report = load_selected_run(path.parent, selected_id)
+    except (OSError, ValueError) as exc:
         st.error(f"Could not read the Kijun report: {exc}")
-        st.stop()
-    if not isinstance(report, dict) or not isinstance(report.get("metrics"), dict):
-        st.error("The selected file is not a valid Kijun report.")
         st.stop()
     if os.environ.get("PHYLAX_KIJUN_DELETE_REPORT") == "1":
         atexit.register(Path(report_path).unlink, missing_ok=True)

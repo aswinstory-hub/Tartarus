@@ -36,6 +36,20 @@ print(frame[["Date", "Time", "Open", "High", "Low", "Close"]].tail())
 
 The security ID above is the example mapping currently shown by the project; refresh it against Dhan's instrument list before relying on it. The end date is exclusive. For offline use, pass a database path to `SQLiteCandleStore` and make sure its schema and candles match the requested symbol and interval. A TATA STEEL fixture database is not currently included.
 
+## Strategy validation and safe repairs
+
+Strategies can pass the result to `Engines.DataQuality.validate(result)`. It
+returns a lowercase OHLC DataFrame, converts numeric strings, sorts timestamps,
+removes exact duplicate rows, and removes rows with negative volume. Each repair
+is reported as a `DataQualityWarning`. If the data source already excluded
+negative-volume candles, that warning is retained and the source timestamps
+remain available in report metadata.
+
+The validator raises `DataQualityError` when rows conflict at one timestamp,
+prices are nonpositive, or OHLC bounds contradict one another. Those prices
+cannot be reconstructed from the other fields without guessing. Intraday gaps
+remain visible as metadata; the validator does not fill them.
+
 ## Validation and limits
 
 Date ranges, OHLC values, and source payloads are validated. Dhan, network, malformed-response, and local database errors are raised rather than silently replaced with fabricated prices. Token renewal, live quotes, symbol resolution, and exchange-session bar synthesis are outside this module's scope.

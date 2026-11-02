@@ -34,14 +34,12 @@ report = kijun.review(
 )
 kijun.print_summary(report)
 latest_path = kijun.save(report, strategy_id="example")
-kijun.show_dashboard(report, report_path=latest_path)  # opens Tartarus portable Chromium
+kijun.show_dashboard(report, report_path=latest_path)  # opens the default browser
 ```
 
 Call `show_dashboard` after the report is ready to start a local Streamlit
-server and open the results in Tartarus's portable Chromium at
-`../browser/chrome-win64/chrome.exe` (resolved relative to the Tartarus repo).
-The dashboard does not fall back to the system browser if Chromium is missing.
-The SMA example does this only when `OPEN_DASHBOARD` is enabled in its settings.
+server and open the results in the computer's default browser. The SMA example
+does this only when `OPEN_DASHBOARD` is enabled in its settings.
 Saved `latest.json` files include a selector for historical runs. To open the
 latest saved result manually in PowerShell:
 

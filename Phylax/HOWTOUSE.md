@@ -179,7 +179,7 @@ Every successful SMA run replaces `backtests/sma_crossover/latest.json` and
 appends one compact record to `history.jsonl`. In `Strategies/sma_crossover.py`,
 set `SAVE_TRADES`, `SAVE_TEXT`, or `SAVE_REPORT` to enable optional exports and
 leave `OPEN_DASHBOARD = True` (the current default) to open the saved result in
-Tartarus's portable Chromium. Net return and CAGR require
+the computer's default browser. Net return and CAGR require
 positive initial capital; CAGR also
 requires a positive test duration and ending capital. Sharpe and Sortino are
 calculated from the SMA example's daily candle-close liquidation-value equity,
@@ -211,11 +211,8 @@ uv run python -m Strategies.sma_crossover
 
 Each run saves a compact latest report and history entry under
 `backtests/sma_crossover/`. With `OPEN_DASHBOARD = True` (the current default),
-Kijun starts Streamlit and opens the report in Tartarus's portable Chromium at
-`browser/chrome-win64/chrome.exe`. The executable path is resolved relative to
-the Tartarus repository. If Chromium is missing, the launcher reports the
-expected path and does not fall back to the system browser. Set
-`OPEN_DASHBOARD = False` to skip opening it. Use
+Kijun starts Streamlit and opens the report in the computer's default browser.
+Set `OPEN_DASHBOARD = False` to skip opening it. Use
 `SAVE_TRADES`, `SAVE_TEXT`, or `SAVE_REPORT` for optional exports.
 `INITIAL_CAPITAL` configures Kijun return metrics; it does not control Buroka
 position sizing. The other constants configure lots, bracket, order expiry,

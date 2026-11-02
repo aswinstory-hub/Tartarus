@@ -12,5 +12,6 @@ Use these pages as the reference for how Phylax is structured and what each modu
 - [Strategies](strategies.md)
 - [Research workspace](research.md)
 - [Testing and project checks](testing.md)
+- [Development setup and Helix](development.md)
 
 The detailed engine specifications remain in [`Engines/`](../Engines/README.md), and the strategy template remains in [`Strategies/framework.md`](../Strategies/framework.md). This directory provides a single navigable reference set.

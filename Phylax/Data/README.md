@@ -60,6 +60,11 @@ are exposed in `invalid_volume_timestamps`. The SMA strategy prints a warning
 and includes these timestamps in the saved report metadata so a run that omits
 a source anomaly remains auditable.
 
+`Engines.DataQuality.validate` returns a clean OHLC frame for the strategy. It
+converts numeric strings, sorts timestamps, removes exact duplicate rows, and
+omits rows with negative volume. It raises `DataQualityError` for conflicting
+duplicate candles and impossible OHLC relationships instead of guessing prices.
+
 ## Local SQLite file
 
 `SQLiteCandleStore(path)` expects a read-only database with this schema:

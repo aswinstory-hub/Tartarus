@@ -26,7 +26,7 @@ uv run python -m Strategies.sma_crossover
 
 To change the run, edit the labeled constants near the top of `Strategies/sma_crossover.py`: `START_DATE` and `END_DATE` define an inclusive start and exclusive end; other settings control SMA periods, sizing, costs, exports, and the dashboard. The current defaults are fast SMA 10, slow SMA 30, one lot, 2% stop, 4% target, initial capital 1,000,000, and zero configured fees/spread/slippage. These are code defaults, not recommendations or claims about actual costs.
 
-The run prints a summary and stores the latest report and a history record under `backtests/sma_crossover/`. With `OPEN_DASHBOARD = True` (the current default), Kijun starts its local Streamlit results page and opens it in Tartarus's portable Chromium at `browser/chrome-win64/chrome.exe`. The browser path is resolved relative to the Tartarus repository, so the project can move to another drive. If Chromium is missing, the launcher reports its expected path and does not open the system default browser. Set `OPEN_DASHBOARD = False` to run without opening the dashboard. `SAVE_TRADES`, `SAVE_TEXT`, and `SAVE_REPORT` control extra exports.
+The run prints a summary and stores the latest report and a history record under `backtests/sma_crossover/`. With `OPEN_DASHBOARD = True` (the current default), Kijun starts its local Streamlit results page and opens it in the computer's default browser. Set `OPEN_DASHBOARD = False` to run without opening the dashboard. `SAVE_TRADES`, `SAVE_TEXT`, and `SAVE_REPORT` control extra exports.
 
 ## 3. Understand the signal and fill timing
 

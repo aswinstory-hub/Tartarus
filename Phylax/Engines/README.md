@@ -1,7 +1,11 @@
 # Engines
 
-All three documented engines now have Python implementations:
+The research and backtest engines now have Python implementations:
 
+- `data_quality.py` normalizes candle columns, converts numeric strings, sorts
+  timestamps, removes exact duplicate rows and negative-volume rows, and rejects
+  irreparable OHLC conflicts. Reported intraday gaps remain visible because a
+  gap alone does not prove bad data.
 - `buroka.py` simulates limit entries, positions, stops/targets, and exits. It
   has no live broker integration.
 - `kijun.py` calculates backtest metrics, maintains a latest report and compact

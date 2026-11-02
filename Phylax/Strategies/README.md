@@ -25,17 +25,18 @@ Run the configured backtest with:
 
 Every successful run updates backtests/sma_crossover/latest.json and appends
 a record to history.jsonl. With OPEN_DASHBOARD = True (the current default),
-Kijun opens its local dashboard in Tartarus's portable Chromium at
-browser/chrome-win64/chrome.exe, resolved relative to the repository. If the
-browser files are missing, the launcher reports an error instead of using the
-system browser. Set OPEN_DASHBOARD = False to skip the dashboard.
+Kijun opens its local dashboard in the computer's default browser. Set
+OPEN_DASHBOARD = False to skip the dashboard.
 SAVE_TRADES, SAVE_TEXT, or SAVE_REPORT enable optional exports.
 DATABASE_PATH selects a local SQLite database; leave it as None to request
 Dhan historical candles using DHAN_ACCESS_TOKEN.
 
-The strategy fetches three times the slow SMA period in calendar days before
-the requested start date for warm-up, but it does not submit orders before
-START_DATE. Data validation, broker accounting, and report preparation live
-in their respective modules. The TATA STEEL fixture database is not currently
-included. See [Buroka assumptions](../Engines/BUROKA.md) before interpreting
-OHLC-based fills and costs.
+The strategy sends fetched candles through `Engines.DataQuality` before the
+backtest. The engine applies deterministic repairs and rejects errors whose
+correct values cannot be inferred safely. It fetches three times the slow SMA
+period in calendar days before the requested start date for warm-up, but it
+does not submit orders before `START_DATE`. Data validation, broker accounting,
+and report preparation live in their respective modules. The TATA STEEL
+fixture database is not currently included. See
+[Buroka assumptions](../Engines/BUROKA.md) before interpreting OHLC-based
+fills and costs.

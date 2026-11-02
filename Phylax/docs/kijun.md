@@ -12,6 +12,6 @@ When marked equity is supplied, headline equity and drawdown metrics use those m
 
 ## Storage and dashboard
 
-`save` writes a latest JSON report and appends a compact record to history. Trade CSV and text summary exports are optional. Generated output is stored under `backtests/<strategy_id>/` by default and should remain local. `show_dashboard` launches the local Streamlit/Plotly report page in Tartarus's portable Chromium at `browser/chrome-win64/chrome.exe`, resolving the path relative to the repository root. It reports a clear error if that executable is missing and does not fall back to the system browser. In the SMA example, the `OPEN_DASHBOARD` setting controls whether a run opens that page; see the [SMA tutorial](../tutorial/01-first-backtest.md).
+`save` writes a latest JSON report and appends a compact record to history. Trade CSV and text summary exports are optional. Generated output is stored under `backtests/<strategy_id>/` by default and should remain local. `show_dashboard` launches the local Streamlit/Plotly report page and opens it in the computer's default browser. In the SMA example, the `OPEN_DASHBOARD` setting controls whether a run opens that page; see the [SMA tutorial](../tutorial/01-first-backtest.md).
 
 The dashboard displays saved or in-memory report data; it does not run the strategy or fetch market data. Historical stored reports are described in the engine specification.

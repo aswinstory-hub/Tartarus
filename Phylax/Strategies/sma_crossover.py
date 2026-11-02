@@ -10,6 +10,7 @@ import pandas as pd
 
 from Data import DhanClient, Instrument, SQLiteCandleStore
 from Engines.buroka import Buroka
+from Engines.data_quality import DataQuality
 from Engines.kijun import Kijun
 
 # Strategy settings
@@ -34,7 +35,7 @@ SLIPPAGE_BPS = 0.0
 END_POLICY = "leave"
 
 # Data, dashboard, and optional export settings
-TATA_STEEL = Instrument("51", "IDX_I", "INDEX", "SENSEX")
+TATA_STEEL = Instrument("3499", "NSE_EQ", "EQUITY", "TATASTEEL")
 DATABASE_PATH: Path | None = None
 OPEN_DASHBOARD = True
 SAVE_TRADES = False
@@ -158,7 +159,7 @@ def main():
     warmup_start = START_DATE - timedelta(days=SLOW_SMA * 3)
     data_source = SQLiteCandleStore(DATABASE_PATH) if DATABASE_PATH else DhanClient()
     candle_data = data_source.fetch(TATA_STEEL, warmup_start, END_DATE, interval=INTERVAL)
-    candles = candle_data.to_ohlc_frame()
+    candles = DataQuality.validate(candle_data)
     invalid_volume_timestamps = getattr(candle_data, "invalid_volume_timestamps", ())
     if invalid_volume_timestamps:
         print(

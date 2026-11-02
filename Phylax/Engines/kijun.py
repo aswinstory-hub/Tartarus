@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import uuid
+import webbrowser
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
@@ -418,17 +419,7 @@ class Kijun:
     def show_dashboard(
         self, report: BacktestReport, *, report_path: str | Path | None = None
     ) -> str:
-        """Launch Streamlit and open its URL in Tartarus's portable Chromium."""
-        chromium_path, browser_profile = _portable_chromium_paths()
-        if not chromium_path.is_file():
-            raise FileNotFoundError(
-                "Tartarus portable Chromium was not found at "
-                f"{chromium_path}. Restore browser/chrome-win64/chrome.exe."
-            )
-        if not browser_profile.is_dir():
-            raise FileNotFoundError(
-                f"Tartarus portable Chromium profile was not found at {browser_profile}."
-            )
+        """Launch Streamlit and open its URL in the system default browser."""
 
         folder = Path(tempfile.gettempdir()) / "phylax-kijun"
         folder.mkdir(parents=True, exist_ok=True)
@@ -507,28 +498,21 @@ class Kijun:
                 f"Log file: {log_path}. Details: {details or 'no output captured'}"
             )
 
-        browser_command = [
-            str(chromium_path),
-            f"--user-data-dir={browser_profile}",
-            url,
-        ]
         try:
-            subprocess.Popen(
-                browser_command,
-                cwd=chromium_path.parent,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-            )
+            opened = webbrowser.open(url, new=0, autoraise=True)
         except OSError as exc:
             process.terminate()
             if owns_report_file:
                 report_file.unlink(missing_ok=True)
             raise RuntimeError(
-                f"Could not launch Tartarus portable Chromium at {chromium_path}: {exc}"
+                f"Could not open Kijun dashboard in the default browser: {exc}"
             ) from exc
-        print(f"Kijun dashboard opened in Tartarus portable Chromium at {url}")
+        if not opened:
+            process.terminate()
+            if owns_report_file:
+                report_file.unlink(missing_ok=True)
+            raise RuntimeError("Could not open Kijun dashboard in the system default browser.")
+        print(f"Kijun dashboard opened in the system default browser at {url}")
         return url
 
 
@@ -537,16 +521,6 @@ def _available_port() -> int:
     with socket.socket() as connection:
         connection.bind(("127.0.0.1", 0))
         return int(connection.getsockname()[1])
-
-
-def _portable_chromium_paths() -> tuple[Path, Path]:
-    """Resolve Chromium and its shared profile from the Tartarus repository root."""
-    tartarus_root = Path(__file__).resolve().parents[2]
-    browser_folder = tartarus_root / "browser"
-    return (
-        browser_folder / "chrome-win64" / "chrome.exe",
-        browser_folder / "profile",
-    )
 
 
 def _safe_strategy_id(name: str) -> str:

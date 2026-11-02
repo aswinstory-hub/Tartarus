@@ -1,6 +1,7 @@
-[language-server.basedpyright]
-command = "uv"
-args = ["run", "--project", ".", "basedpyright-langserver", "--stdio"]
+# Pyright must be installed separately; Ruff is provided by the uv project environment.
+[language-server.pyright]
+command = "pyright-langserver"
+args = ["--stdio"]
 
 [language-server.ruff]
 command = "uv"
@@ -8,6 +9,7 @@ args = ["run", "--project", ".", "ruff", "server"]
 
 [[language]]
 name = "python"
-language-servers = ["basedpyright", "ruff"]
+language-servers = [{ name = "pyright", except-features = ["format"] }, "ruff"]
+formatter = { command = "uv", args = ["run", "--project", ".", "ruff", "format", "--stdin-filename", "%{buffer_name}", "-"] }
 auto-format = true
-formatter = { command = "uv", args = ["run", "--project", ".", "ruff", "format", "-"] }
+roots = ["pyproject.toml", "uv.lock", ".git"]

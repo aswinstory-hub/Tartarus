@@ -1,6 +1,6 @@
 # Tutorial 4: Read Kijun Results
 
-Kijun is in `Engines/kijun.py`. It calculates metrics from Buroka's trades, saves a machine-readable report, and can open a local Streamlit dashboard in Tartarus's portable Chromium.
+Kijun is in `Engines/kijun.py`. It calculates metrics from Buroka's trades, saves a machine-readable report, and can open a local Streamlit dashboard in the computer's default browser.
 
 ## Send results to Kijun
 
@@ -25,7 +25,7 @@ kijun.show_dashboard(report, report_path=report_path)
 
 Strategies should provide periodic marked equity when they want periodic risk ratios such as Sharpe and Sortino. Kijun does not derive these ratios from a handful of trade exits. It also leaves metrics undefined when the required values or valid denominators are absent. It rounds floating-point metric values to three decimals after calculation.
 
-`show_dashboard` starts Streamlit on a locally selected port, waits for the page to be ready, and opens the actual URL using `browser/chrome-win64/chrome.exe` from the Tartarus repository. It reuses Tartarus's Chromium profile and does not force a new window. If the executable or profile is missing, it raises an error with the expected path instead of falling back to the system browser. Direct calls to `show_dashboard` open the dashboard; the SMA strategy's `OPEN_DASHBOARD` setting controls whether its run calls this method.
+`show_dashboard` starts Streamlit on a locally selected port, waits for the page to be ready, and opens the dashboard URL in the computer's default browser. Direct calls to `show_dashboard` open the dashboard; the SMA strategy's `OPEN_DASHBOARD` setting controls whether its run calls this method.
 
 ## Find saved reports
 

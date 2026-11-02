@@ -363,7 +363,7 @@ def test_dashboard_launcher_uses_saved_report_and_starts_only_when_called(
 ) -> None:
     report = Kijun().analyze([], metadata={"strategy": "launch test"})
     report_path = Kijun().save(report, output_root=tmp_path)
-    calls = {"commands": [], "options": []}
+    calls = {"commands": [], "options": [], "browser_urls": []}
 
     class FakeProcess:
         def poll(self):
@@ -384,33 +384,47 @@ def test_dashboard_launcher_uses_saved_report_and_starts_only_when_called(
     monkeypatch.setattr(kijun_module, "_available_port", lambda: 8765)
     monkeypatch.setattr(kijun_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(kijun_module.socket, "create_connection", lambda *a, **k: Connected())
+    monkeypatch.setattr(
+        kijun_module.webbrowser,
+        "open",
+        lambda url, **kwargs: calls["browser_urls"].append((url, kwargs)) or True,
+    )
 
     url = Kijun().show_dashboard(report, report_path=report_path)
 
     assert url == "http://localhost:8765"
-    streamlit_command, browser_command = calls["commands"]
+    (streamlit_command,) = calls["commands"]
     assert calls["options"][0]["env"]["PHYLAX_KIJUN_REPORT"] == str(report_path.resolve())
     assert "run" in streamlit_command
     assert "--server.address=127.0.0.1" in streamlit_command
     assert "--server.headless=true" in streamlit_command
     assert any("kijun_dashboard.py" in argument for argument in streamlit_command)
-    chromium_path, browser_profile = kijun_module._portable_chromium_paths()
-    assert browser_command[0] == str(chromium_path)
-    assert f"--user-data-dir={browser_profile}" in browser_command
-    assert url in browser_command
-    assert "--new-window" not in browser_command
+    assert calls["browser_urls"] == [(url, {"new": 0, "autoraise": True})]
 
 
-def test_dashboard_launcher_reports_missing_portable_chromium(monkeypatch, tmp_path) -> None:
+def test_dashboard_launcher_reports_default_browser_failure(monkeypatch, tmp_path) -> None:
     report = Kijun().analyze([])
-    missing_chromium = tmp_path / "missing" / "chrome.exe"
-    monkeypatch.setattr(
-        kijun_module,
-        "_portable_chromium_paths",
-        lambda: (missing_chromium, tmp_path),
-    )
 
-    with pytest.raises(FileNotFoundError, match="Tartarus portable Chromium"):
+    class FakeProcess:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+    class Connected:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(kijun_module, "_available_port", lambda: 8765)
+    monkeypatch.setattr(kijun_module.subprocess, "Popen", lambda *a, **k: FakeProcess())
+    monkeypatch.setattr(kijun_module.socket, "create_connection", lambda *a, **k: Connected())
+    monkeypatch.setattr(kijun_module.webbrowser, "open", lambda *a, **k: False)
+
+    with pytest.raises(RuntimeError, match="system default browser"):
         Kijun().show_dashboard(report)
 
 
